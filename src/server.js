@@ -16,11 +16,20 @@ app.get("/", (req, res) => {
 });
 
 // Routes
+
+app.use("/api/returns", require("./routes/returnRoutes"));
+app.use("/api/stock", require("./routes/stockRoutes"));
+app.use("/api/dashboard", require("./routes/dashboardRoutes"));
+app.use("/api/closing", require("./routes/closingRoutes"));
+app.use("/api/expenses", require("./routes/expenseRoutes"));
 app.use("/api/products", require("./routes/productRoutes"));
 app.use("/api/sales", require("./routes/saleRoutes"));
 app.use("/api/auth", require("./routes/authRoutes"));
 app.use("/api/suppliers", require("./routes/supplierRoutes"));
 app.use("/api/purchases", require("./routes/purchaseRoutes"));
+
+app.use("/api/reports", require("./routes/reportRoutes"));
+
 
 
 const PORT = process.env.PORT || 5000;

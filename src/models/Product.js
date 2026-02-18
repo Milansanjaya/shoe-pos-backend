@@ -28,7 +28,12 @@ const productSchema = new mongoose.Schema({
     default: 0
   },
 
-  barcode: String,
+ barcode: {
+  type: String,
+  unique: true,
+  required: true
+},
+
 
   supplier: {
     type: mongoose.Schema.Types.ObjectId,

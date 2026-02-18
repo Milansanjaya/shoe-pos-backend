@@ -1,11 +1,28 @@
 const express = require("express");
 const router = express.Router();
 
-const { createSale,getTodaySales} = require("../controllers/saleController");
 const auth = require("../middleware/authMiddleware");
 
-router.post("/", auth, createSale);
-router.get("/today", auth, getTodaySales);
+const {
+  createSale,
+  getSaleById,
+  printInvoice,
+  createSaleByBarcode
+} = require("../controllers/saleController");
 
+/* ===============================
+   Sale Routes
+=================================*/
+
+// Create sale
+router.post("/", auth, createSale);
+
+// Get single sale
+router.get("/:id", auth, getSaleById);
+
+// Print invoice
+router.get("/:id/print", auth, printInvoice);
+
+router.post("/scan", auth, createSaleByBarcode);
 
 module.exports = router;
