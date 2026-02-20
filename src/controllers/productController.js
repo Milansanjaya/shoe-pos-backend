@@ -15,6 +15,11 @@ const createProduct = async (req, res) => {
     // Generate barcode for each variant
     const updatedVariants = [];
 
+    // Auto-generate product barcode if not provided
+    if (!productData.barcode) {
+      productData.barcode = await getNextBarcode();
+    }
+
     for (const variant of variants) {
       const barcode = await getNextBarcode();
 
@@ -144,9 +149,17 @@ const getLowStockProducts = async (req, res) => {
 =================================*/
 const getProductByBarcode = async (req, res) => {
   try {
-    const { barcode } = req.params;
+    const barcode = String(req.params.barcode ?? "").trim();
+    if (!barcode) {
+      return res.status(400).json({ message: "Barcode is required" });
+    }
 
-    const product = await Product.findOne({ barcode });
+    const product = await Product.findOne({
+      $or: [
+        { barcode },
+        { "variants.barcode": barcode }
+      ]
+    });
 
     if (!product) {
       return res.status(404).json({ message: "Product not found" });
@@ -170,13 +183,20 @@ const getProductByBarcode = async (req, res) => {
 };
 
 const getNextBarcode = async () => {
+  const now = new Date();
+  const yyyy = String(now.getFullYear());
+  const mm = String(now.getMonth() + 1).padStart(2, "0");
+  const dd = String(now.getDate()).padStart(2, "0");
+  const datePrefix = `${yyyy}${mm}${dd}`;
+
   const counter = await Counter.findOneAndUpdate(
-    { name: "barcode" },
+    { name: `barcode-${datePrefix}` },
     { $inc: { sequence: 1 } },
     { new: true, upsert: true }
   );
 
-  return String(counter.sequence).padStart(7, "0");
+  // Example: 202602200001
+  return `${datePrefix}${String(counter.sequence).padStart(4, "0")}`;
 };
 
 module.exports = {

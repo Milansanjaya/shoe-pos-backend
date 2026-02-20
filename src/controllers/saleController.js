@@ -2,6 +2,7 @@ const mongoose = require("mongoose");
 const Sale = require("../models/Sale");
 const Product = require("../models/Product");
 const Counter = require("../models/Counter");
+
 /* ======================================
    Generate Invoice Number (WITH SESSION)
 ====================================== */
@@ -14,28 +15,32 @@ const getNextInvoiceNumber = async (session) => {
 
   return `INV-${String(counter.sequence).padStart(5, "0")}`;
 };
+
 /* ======================================
-   Create Sale (Transaction Safe)
+   Create Sale (Transaction Safe + Discount)
 ====================================== */
 const createSale = async (req, res) => {
   const session = await mongoose.startSession();
   session.startTransaction();
 
   try {
-    const { items, paymentMethod = "Cash" } = req.body;
+    const {
+      items,
+      paymentMethod = "Cash",
+      discountType = "NONE",
+      discountValue = 0
+    } = req.body;
 
-    if (!items || items.length === 0) {
+    if (!items || items.length === 0)
       throw new Error("No sale items provided");
-    }
 
     let totalAmount = 0;
-    let totalProfit = 0;
+    let totalCost = 0;
     let processedItems = [];
 
     for (const item of items) {
 
       const product = await Product.findById(item.product).session(session);
-
       if (!product) throw new Error("Product not found");
 
       const variant = product.variants.find(
@@ -43,18 +48,16 @@ const createSale = async (req, res) => {
       );
 
       if (!variant) throw new Error("Variant not found");
-
       if (variant.stock < item.quantity)
         throw new Error("Not enough stock");
 
-      // Reduce stock
       variant.stock -= item.quantity;
 
       const itemTotal = product.price * item.quantity;
       totalAmount += itemTotal;
 
       const cost = product.costPrice || 0;
-      totalProfit += (product.price - cost) * item.quantity;
+      totalCost += cost * item.quantity;
 
       await product.save({ session });
 
@@ -67,12 +70,39 @@ const createSale = async (req, res) => {
       });
     }
 
+    /* ======================
+       DISCOUNT CALCULATION
+    ====================== */
+
+    let discountAmount = 0;
+
+    if (discountType === "PERCENTAGE") {
+      discountAmount = (totalAmount * discountValue) / 100;
+    } else if (discountType === "FLAT") {
+      discountAmount = discountValue;
+    }
+
+    if (discountAmount > totalAmount)
+      discountAmount = totalAmount;
+
+    const grandTotal = totalAmount - discountAmount;
+
+    /* ======================
+       PROFIT CALCULATION
+    ====================== */
+
+    const totalProfit = grandTotal - totalCost;
+
     const invoiceNumber = await getNextInvoiceNumber(session);
 
     const sale = await Sale.create([{
       invoiceNumber,
       items: processedItems,
       totalAmount,
+      discountType,
+      discountValue,
+      discountAmount,
+      grandTotal,
       totalProfit,
       paymentMethod,
       soldBy: req.user.id
@@ -90,70 +120,6 @@ const createSale = async (req, res) => {
   }
 };
 
-/* ======================================
-   Create Sale By Barcode (Transaction Safe)
-====================================== */
-const createSaleByBarcode = async (req, res) => {
-  const session = await mongoose.startSession();
-  session.startTransaction();
-
-  try {
-    let { barcode, quantity = 1, paymentMethod = "Cash" } = req.body;
-
-    quantity = Number(quantity);
-
-    if (!barcode) throw new Error("Barcode required");
-    if (quantity <= 0) throw new Error("Invalid quantity");
-
-    const product = await Product.findOne({
-      "variants.barcode": barcode
-    }).session(session);
-
-    if (!product) throw new Error("Product not found");
-
-    const variant = product.variants.find(v => v.barcode === barcode);
-
-    if (!variant) throw new Error("Variant not found");
-
-    if (variant.stock < quantity)
-      throw new Error("Not enough stock");
-
-    variant.stock -= quantity;
-
-    const totalAmount = product.price * quantity;
-    const cost = product.costPrice || 0;
-    const totalProfit = (product.price - cost) * quantity;
-
-    await product.save({ session });
-
-    const invoiceNumber = await getNextInvoiceNumber(session);
-
-    const sale = await Sale.create([{
-      invoiceNumber,
-      items: [{
-        product: product._id,
-        size: variant.size,
-        color: variant.color,
-        quantity,
-        price: product.price
-      }],
-      totalAmount,
-      totalProfit,
-      paymentMethod,
-      soldBy: req.user.id
-    }], { session });
-
-    await session.commitTransaction();
-    session.endSession();
-
-    res.status(201).json(sale[0]);
-
-  } catch (error) {
-    await session.abortTransaction();
-    session.endSession();
-    res.status(400).json({ message: error.message });
-  }
-};
 /* ======================================
    Get Single Sale
 ====================================== */
@@ -163,9 +129,8 @@ const getSaleById = async (req, res) => {
       .populate("items.product")
       .populate("soldBy");
 
-    if (!sale) {
+    if (!sale)
       return res.status(404).json({ message: "Sale not found" });
-    }
 
     res.json(sale);
 
@@ -173,8 +138,9 @@ const getSaleById = async (req, res) => {
     res.status(500).json({ message: error.message });
   }
 };
+
 /* ======================================
-   Print Invoice
+   Print Invoice (With Discount)
 ====================================== */
 const printInvoice = async (req, res) => {
   try {
@@ -228,7 +194,9 @@ const printInvoice = async (req, res) => {
         </table>
 
         <hr/>
-        <h3>Total: ${sale.totalAmount}</h3>
+        <p>Subtotal: ${sale.totalAmount}</p>
+        <p>Discount: ${sale.discountAmount}</p>
+        <h3>Grand Total: ${sale.grandTotal}</h3>
 
         <script>window.print();</script>
       </body>
@@ -242,7 +210,6 @@ const printInvoice = async (req, res) => {
 
 module.exports = {
   createSale,
-  createSaleByBarcode,
   getSaleById,
   printInvoice
 };

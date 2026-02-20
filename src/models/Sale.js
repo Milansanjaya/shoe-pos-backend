@@ -8,8 +8,14 @@ const saleItemSchema = new mongoose.Schema({
   },
   size: String,
   color: String,
-  quantity: Number,
-  price: Number
+  quantity: {
+    type: Number,
+    required: true
+  },
+  price: {
+    type: Number,
+    required: true
+  }
 });
 
 const saleSchema = new mongoose.Schema({
@@ -20,23 +26,52 @@ const saleSchema = new mongoose.Schema({
 
   items: [saleItemSchema],
 
+  // Subtotal before discount
   totalAmount: {
     type: Number,
     required: true
   },
 
+  // Discount System
+  discountType: {
+    type: String,
+    enum: ["NONE", "PERCENTAGE", "FLAT"],
+    default: "NONE"
+  },
+
+  discountValue: {
+    type: Number,
+    default: 0
+  },
+
+  discountAmount: {
+    type: Number,
+    default: 0
+  },
+
+  // Final amount after discount
+  grandTotal: {
+    type: Number,
+    required: true
+  },
+
+  // Profit tracking
+  totalProfit: {
+    type: Number,
+    default: 0
+  },
+
+  // Payment type
+  paymentMethod: {
+    type: String,
+    enum: ["Cash", "Card", "Transfer"],
+    default: "Cash"
+  },
+
   soldBy: {
     type: mongoose.Schema.Types.ObjectId,
     ref: "User"
-  },
-
-totalProfit: {
-  type: Number,
-  default: 0
-},
-totalAmount: Number,
-totalProfit: Number,
-
+  }
 
 }, { timestamps: true });
 

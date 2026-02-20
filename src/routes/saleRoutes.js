@@ -23,6 +23,5 @@ router.get("/:id", auth, getSaleById);
 // Print invoice
 router.get("/:id/print", auth, printInvoice);
 
-router.post("/scan", auth, createSaleByBarcode);
 
 module.exports = router;
