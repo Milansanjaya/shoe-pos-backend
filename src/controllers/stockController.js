@@ -9,7 +9,13 @@ const STOCK_ADJUSTMENT_POPULATE = [
 
 const adjustStock = async (req, res) => {
   try {
-    const { productId, size, color, type, quantity, reason } = req.body;
+    // Accept both 'product' and 'productId' from request body
+    const rawProduct = req.body.product ?? req.body.productId;
+    const productId = typeof rawProduct === 'string' 
+      ? rawProduct 
+      : (rawProduct?._id ?? rawProduct?.id);
+    
+    const { size, color, type, quantity, reason } = req.body;
 
     const normalizedSize = String(size ?? "").trim();
     const normalizedColor = String(color ?? "").trim();
@@ -17,7 +23,7 @@ const adjustStock = async (req, res) => {
     const normalizedQuantity = Number(quantity);
 
     if (!productId) {
-      return res.status(400).json({ message: "productId is required" });
+      return res.status(400).json({ message: "product or productId is required" });
     }
     if (!normalizedSize || !normalizedColor) {
       return res.status(400).json({ message: "size and color are required" });
@@ -77,7 +83,9 @@ const adjustStock = async (req, res) => {
 
 const getStockAdjustments = async (req, res) => {
   try {
-    const { productId, type } = req.query;
+    // Accept both 'product' and 'productId' in query params
+    const productId = req.query.product ?? req.query.productId;
+    const { type } = req.query;
 
     const filter = {};
     if (productId) filter.product = productId;
