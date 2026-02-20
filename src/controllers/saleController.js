@@ -208,8 +208,35 @@ const printInvoice = async (req, res) => {
   }
 };
 
+/* ======================================
+   Get All Sales
+====================================== */
+const getSales = async (req, res) => {
+  try {
+    const { from, to, paymentMethod } = req.query;
+    const filter = {};
+
+    if (paymentMethod) filter.paymentMethod = paymentMethod;
+    if (from || to) {
+      filter.createdAt = {};
+      if (from) filter.createdAt.$gte = new Date(from);
+      if (to) filter.createdAt.$lte = new Date(new Date(to).setHours(23, 59, 59, 999));
+    }
+
+    const sales = await Sale.find(filter)
+      .sort({ createdAt: -1 })
+      .populate('items.product', 'name brand')
+      .populate('soldBy', 'name email');
+
+    res.json(sales);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
 module.exports = {
   createSale,
+  getSales,
   getSaleById,
   printInvoice
 };

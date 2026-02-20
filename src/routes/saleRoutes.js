@@ -5,6 +5,7 @@ const auth = require("../middleware/authMiddleware");
 
 const {
   createSale,
+  getSales,
   getSaleById,
   printInvoice,
   createSaleByBarcode
@@ -16,6 +17,9 @@ const {
 
 // Create sale
 router.post("/", auth, createSale);
+
+// Get all sales
+router.get("/", auth, getSales);
 
 // Get single sale
 router.get("/:id", auth, getSaleById);
