@@ -150,63 +150,125 @@ const printInvoice = async (req, res) => {
 
     if (!sale) return res.status(404).send("Sale not found");
 
-    const date = new Date(sale.createdAt).toISOString().split("T")[0];
-
-    let itemsHtml = "";
-
-    sale.items.forEach(item => {
-      itemsHtml += `
-        <tr>
-          <td>${item.product.name}</td>
-          <td>${item.quantity}</td>
-          <td>${item.price}</td>
-          <td>${item.quantity * item.price}</td>
-        </tr>
-      `;
+    const date = new Date(sale.createdAt).toLocaleString('en-GB', {
+      day: '2-digit', month: 'short', year: 'numeric',
+      hour: '2-digit', minute: '2-digit'
     });
 
-    res.send(`
-      <html>
-      <head>
-        <title>Invoice</title>
-        <style>
-          body { font-family: Arial; padding: 20px; }
-          table { width: 100%; border-collapse: collapse; }
-          td, th { border-bottom: 1px solid #ccc; padding: 8px; }
-          h2 { text-align: center; }
-        </style>
-      </head>
-      <body>
-        <h2>SHOE SHOP</h2>
-        <hr/>
-        <p><strong>Invoice:</strong> ${sale.invoiceNumber}</p>
-        <p><strong>Date:</strong> ${date}</p>
-        <p><strong>Payment:</strong> ${sale.paymentMethod}</p>
+    // Short format for thermal: Rs. 25,000 (no decimals unless needed)
+    const fmt = (n) => 'Rs. ' + Number(n).toLocaleString('en-LK');
 
-        <table>
-          <tr>
-            <th>Item</th>
-            <th>Qty</th>
-            <th>Price</th>
-            <th>Total</th>
-          </tr>
-          ${itemsHtml}
-        </table>
+    const soldBy = sale.soldBy?.name || sale.soldBy?.email || '—';
 
-        <hr/>
-        <p>Subtotal: ${sale.totalAmount}</p>
-        <p>Discount: ${sale.discountAmount}</p>
-        <h3>Grand Total: ${sale.grandTotal}</h3>
+    // 4-column layout: Item | QTY | Price | Total
+    let itemsHtml = '';
+    sale.items.forEach(item => {
+      const name = item.product?.name || 'Unknown';
+      itemsHtml += `
+        <tr>
+          <td><strong>${name}</strong><br/>${item.size} / ${item.color}</td>
+          <td class="center">${item.quantity}</td>
+          <td class="right">${fmt(item.price)}</td>
+          <td class="right"><strong>${fmt(item.quantity * item.price)}</strong></td>
+        </tr>`;
+    });
 
-        <script>window.print();</script>
-      </body>
-      </html>
-    `);
+    const discountRow = sale.discountAmount > 0
+      ? `<tr>
+          <td colspan="3">Discount ${sale.discountType === 'PERCENTAGE' ? `(${sale.discountValue}%)` : '(Flat)'}</td>
+          <td class="right">- ${fmt(sale.discountAmount)}</td>
+         </tr>`
+      : '';
+
+    res.send(`<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8"/>
+  <title>Invoice ${sale.invoiceNumber}</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Courier New', monospace;
+      font-size: 12px;
+      font-weight: bold;
+      color: #000;
+      width: 70mm;
+      margin: 0 auto;
+      padding: 4px 10px;
+    }
+    h2 { text-align: center; font-size: 18px; letter-spacing: 3px; }
+    .center { text-align: center; }
+    .right { text-align: right; }
+    p { margin: 2px 0; font-size: 12px; }
+    hr { border: none; border-top: 1px dashed #000; margin: 5px 0; }
+    table { width: 100%; border-collapse: collapse; }
+    td { padding: 3px 1px; font-size: 12px; vertical-align: top; }
+    .right { text-align: right; white-space: nowrap; }
+    thead th {
+      border-bottom: 1px solid #000;
+      font-size: 11px;
+      font-weight: bold;
+      padding: 2px 1px;
+    }
+    .total-row td {
+      border-top: 1px dashed #000;
+      padding-top: 5px;
+      font-size: 14px;
+      font-weight: bold;
+    }
+    .footer { text-align: center; font-size: 11px; margin-top: 6px; }
+    @media print {
+      body { width: 70mm; }
+      @page { size: 80mm auto; margin: 3mm; }
+    }
+  </style>
+</head>
+<body>
+  <h2>SHOE SHOP</h2>
+  <p class="center">Point of Sale Receipt</p>
+  <hr/>
+  <p><strong>Invoice:</strong> ${sale.invoiceNumber}</p>
+  <p><strong>Date:</strong> ${date}</p>
+  <p><strong>Payment:</strong> ${sale.paymentMethod}</p>
+  <p><strong>Cashier:</strong> ${soldBy}</p>
+  <hr/>
+  <table>
+    <thead>
+      <tr>
+        <th style="text-align:left">Item</th>
+        <th style="text-align:left">QTY</th>
+        <th style="text-align:left">Price</th>
+        <th style="text-align:right">Total</th>
+      </tr>
+    </thead>
+    <tbody>${itemsHtml}</tbody>
+  </table>
+  <hr/>
+  <table>
+    <tr>
+      <td colspan="3">Subtotal</td>
+      <td class="right">${fmt(sale.totalAmount)}</td>
+    </tr>
+    ${discountRow}
+    <tr class="total-row">
+      <td colspan="3">GRAND TOTAL</td>
+      <td class="right">${fmt(sale.grandTotal)}</td>
+    </tr>
+  </table>
+  <hr/>
+  <p class="footer">Thank you for your purchase!</p>
+  <p class="footer">*** SHOE SHOP ***</p>
+  <script>window.onload = function() { window.print(); window.onafterprint = function() { window.close(); }; };</script>
+</body>
+</html>`);
 
   } catch (error) {
     res.status(500).send(error.message);
   }
 };
+
+
+
 
 /* ======================================
    Get All Sales

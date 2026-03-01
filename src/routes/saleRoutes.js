@@ -24,8 +24,8 @@ router.get("/", auth, getSales);
 // Get single sale
 router.get("/:id", auth, getSaleById);
 
-// Print invoice
-router.get("/:id/print", auth, printInvoice);
+// Print invoice (no auth — opened via window.open, can't send Bearer token)
+router.get("/:id/print", printInvoice);
 
 
 module.exports = router;
