@@ -1,28 +1,23 @@
-const mongoose = require("mongoose");
 const Sale = require("../models/Sale");
 const Product = require("../models/Product");
 const Counter = require("../models/Counter");
 
 /* ======================================
-   Generate Invoice Number (WITH SESSION)
+   Generate Invoice Number (no session)
 ====================================== */
-const getNextInvoiceNumber = async (session) => {
+const getNextInvoiceNumber = async () => {
   const counter = await Counter.findOneAndUpdate(
     { name: "invoice" },
     { $inc: { sequence: 1 } },
-    { new: true, upsert: true, session }
+    { new: true, upsert: true }
   );
-
   return `INV-${String(counter.sequence).padStart(5, "0")}`;
 };
 
 /* ======================================
-   Create Sale (Transaction Safe + Discount)
+   Create Sale
 ====================================== */
 const createSale = async (req, res) => {
-  const session = await mongoose.startSession();
-  session.startTransaction();
-
   try {
     const {
       items,
@@ -32,24 +27,23 @@ const createSale = async (req, res) => {
     } = req.body;
 
     if (!items || items.length === 0)
-      throw new Error("No sale items provided");
+      return res.status(400).json({ message: "No sale items provided" });
 
     let totalAmount = 0;
     let totalCost = 0;
     let processedItems = [];
 
     for (const item of items) {
-
-      const product = await Product.findById(item.product).session(session);
-      if (!product) throw new Error("Product not found");
+      const product = await Product.findById(item.product);
+      if (!product) return res.status(404).json({ message: "Product not found" });
 
       const variant = product.variants.find(
         v => v.size === item.size && v.color === item.color
       );
 
-      if (!variant) throw new Error("Variant not found");
+      if (!variant) return res.status(404).json({ message: "Variant not found" });
       if (variant.stock < item.quantity)
-        throw new Error("Not enough stock");
+        return res.status(400).json({ message: `Not enough stock for ${product.name}` });
 
       variant.stock -= item.quantity;
 
@@ -59,7 +53,7 @@ const createSale = async (req, res) => {
       const cost = product.costPrice || 0;
       totalCost += cost * item.quantity;
 
-      await product.save({ session });
+      await product.save();
 
       processedItems.push({
         product: product._id,
@@ -70,32 +64,22 @@ const createSale = async (req, res) => {
       });
     }
 
-    /* ======================
-       DISCOUNT CALCULATION
-    ====================== */
-
+    /* Discount */
     let discountAmount = 0;
-
     if (discountType === "PERCENTAGE") {
       discountAmount = (totalAmount * discountValue) / 100;
     } else if (discountType === "FLAT") {
       discountAmount = discountValue;
     }
-
-    if (discountAmount > totalAmount)
-      discountAmount = totalAmount;
-
+    if (discountAmount > totalAmount) discountAmount = totalAmount;
     const grandTotal = totalAmount - discountAmount;
 
-    /* ======================
-       PROFIT CALCULATION
-    ====================== */
-
+    /* Profit */
     const totalProfit = grandTotal - totalCost;
 
-    const invoiceNumber = await getNextInvoiceNumber(session);
+    const invoiceNumber = await getNextInvoiceNumber();
 
-    const sale = await Sale.create([{
+    const sale = await Sale.create({
       invoiceNumber,
       items: processedItems,
       totalAmount,
@@ -106,19 +90,15 @@ const createSale = async (req, res) => {
       totalProfit,
       paymentMethod,
       soldBy: req.user.id
-    }], { session });
+    });
 
-    await session.commitTransaction();
-    session.endSession();
-
-    res.status(201).json(sale[0]);
+    res.status(201).json(sale);
 
   } catch (error) {
-    await session.abortTransaction();
-    session.endSession();
     res.status(400).json({ message: error.message });
   }
 };
+
 
 /* ======================================
    Get Single Sale
