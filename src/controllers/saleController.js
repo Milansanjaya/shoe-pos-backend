@@ -199,7 +199,7 @@ const printInvoice = async (req, res) => {
     .footer { text-align: center; font-size: 11px; margin-top: 6px; }
     @media print {
       body { width: 70mm; }
-      @page { size: 80mm auto; margin: 3mm; }
+      @page { size: 80mm auto; margin: 2mm 2mm 2mm 6mm; }
     }
   </style>
 </head>
@@ -238,7 +238,12 @@ const printInvoice = async (req, res) => {
   <hr/>
   <p class="footer">Thank you for your purchase!</p>
   <p class="footer">*** SHOE SHOP ***</p>
-  <script>window.onload = function() { window.print(); window.onafterprint = function() { window.close(); }; };</script>
+  <script>
+    window.onload = function () {
+      window.print();
+      window.onafterprint = function () { window.close(); };
+    };
+  </script>
 </body>
 </html>`);
 
