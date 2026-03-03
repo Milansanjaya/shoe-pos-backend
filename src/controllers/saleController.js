@@ -23,7 +23,9 @@ const createSale = async (req, res) => {
       items,
       paymentMethod = "Cash",
       discountType = "NONE",
-      discountValue = 0
+      discountValue = 0,
+      cashReceived = 0,
+      changeAmount = 0
     } = req.body;
 
     if (!items || items.length === 0)
@@ -89,6 +91,8 @@ const createSale = async (req, res) => {
       grandTotal,
       totalProfit,
       paymentMethod,
+      cashReceived: paymentMethod === "Cash" ? cashReceived : 0,
+      changeAmount: paymentMethod === "Cash" ? changeAmount : 0,
       soldBy: req.user.id
     });
 
@@ -140,22 +144,25 @@ const printInvoice = async (req, res) => {
 
     const soldBy = sale.soldBy?.name || sale.soldBy?.email || '—';
 
-    // 4-column layout: Item | QTY | Price | Total
+    // 2-line per item layout: name+variant on first line, qty×price = total on second line
     let itemsHtml = '';
     sale.items.forEach(item => {
       const name = item.product?.name || 'Unknown';
+      const lineTotal = item.quantity * item.price;
       itemsHtml += `
         <tr>
-          <td><strong>${name}</strong><br/>${item.size} / ${item.color}</td>
-          <td class="center">${item.quantity}</td>
-          <td class="right">${fmt(item.price)}</td>
-          <td class="right"><strong>${fmt(item.quantity * item.price)}</strong></td>
+          <td style="padding-top:5px"><strong>${name}</strong></td>
+          <td style="padding-top:5px;text-align:right"><strong>${fmt(lineTotal)}</strong></td>
+        </tr>
+        <tr>
+          <td style="font-size:11px;color:#333">${item.size} / ${item.color}</td>
+          <td style="font-size:11px;text-align:right;color:#333">${item.quantity} x ${fmt(item.price)}</td>
         </tr>`;
     });
 
     const discountRow = sale.discountAmount > 0
       ? `<tr>
-          <td colspan="3">Discount ${sale.discountType === 'PERCENTAGE' ? `(${sale.discountValue}%)` : '(Flat)'}</td>
+          <td>Discount ${sale.discountType === 'PERCENTAGE' ? `(${sale.discountValue}%)` : '(Flat)'}</td>
           <td class="right">- ${fmt(sale.discountAmount)}</td>
          </tr>`
       : '';
@@ -169,42 +176,35 @@ const printInvoice = async (req, res) => {
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
       font-family: 'Courier New', monospace;
-      font-size: 12px;
+      font-size: 10px;
       font-weight: bold;
       color: #000;
-      width: 70mm;
-      margin: 0 auto;
-      padding: 4px 10px;
+      width: 100%;
+      margin: 0;
+      padding: 0;
     }
-    h2 { text-align: center; font-size: 18px; letter-spacing: 3px; }
+    h2 { text-align: center; font-size: 13px; letter-spacing: 0px; margin-bottom: 1px; word-break: break-word; }
     .center { text-align: center; }
     .right { text-align: right; }
-    p { margin: 2px 0; font-size: 12px; }
-    hr { border: none; border-top: 1px dashed #000; margin: 5px 0; }
-    table { width: 100%; border-collapse: collapse; }
-    td { padding: 3px 1px; font-size: 12px; vertical-align: top; }
-    .right { text-align: right; white-space: nowrap; }
-    thead th {
-      border-bottom: 1px solid #000;
-      font-size: 11px;
-      font-weight: bold;
-      padding: 2px 1px;
-    }
+    p { margin: 1px 0; font-size: 10px; }
+    hr { border: none; border-top: 1px dashed #000; margin: 3px 0; }
+    table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+    td { padding: 1px 0; font-size: 10px; vertical-align: top; word-break: break-word; }
+    .right { text-align: right; }
     .total-row td {
       border-top: 1px dashed #000;
-      padding-top: 5px;
-      font-size: 14px;
+      padding-top: 3px;
+      font-size: 11px;
       font-weight: bold;
     }
-    .footer { text-align: center; font-size: 11px; margin-top: 6px; }
+    .footer { text-align: center; font-size: 10px; margin-top: 4px; }
     @media print {
-      body { width: 70mm; }
-      @page { size: 80mm auto; margin: 2mm 2mm 2mm 6mm; }
+      @page { size: 76mm auto; margin: 3mm 4mm; }
     }
   </style>
 </head>
 <body>
-  <h2>SHOE SHOP</h2>
+  <h2>SHALANI SHOE PLACE</h2>
   <p class="center">Point of Sale Receipt</p>
   <hr/>
   <p><strong>Invoice:</strong> ${sale.invoiceNumber}</p>
@@ -213,31 +213,26 @@ const printInvoice = async (req, res) => {
   <p><strong>Cashier:</strong> ${soldBy}</p>
   <hr/>
   <table>
-    <thead>
-      <tr>
-        <th style="text-align:left">Item</th>
-        <th style="text-align:left">QTY</th>
-        <th style="text-align:left">Price</th>
-        <th style="text-align:right">Total</th>
-      </tr>
-    </thead>
     <tbody>${itemsHtml}</tbody>
   </table>
   <hr/>
   <table>
     <tr>
-      <td colspan="3">Subtotal</td>
+      <td>Subtotal</td>
       <td class="right">${fmt(sale.totalAmount)}</td>
     </tr>
     ${discountRow}
     <tr class="total-row">
-      <td colspan="3">GRAND TOTAL</td>
+      <td>GRAND TOTAL</td>
       <td class="right">${fmt(sale.grandTotal)}</td>
     </tr>
   </table>
   <hr/>
+  <p><strong>Payment:</strong> ${sale.paymentMethod}</p>
+  ${sale.paymentMethod === 'Cash' && sale.cashReceived > 0 ? `<p><strong>Cash Received:</strong> ${fmt(sale.cashReceived)}</p><p style="color:#16a34a"><strong>Change Due:</strong> ${fmt(sale.changeAmount)}</p>` : ''}
+  <hr/>
   <p class="footer">Thank you for your purchase!</p>
-  <p class="footer">*** SHOE SHOP ***</p>
+  <p class="footer">*** SHALANI SHOE PLACE ***</p>
   <script>
     window.onload = function () {
       window.print();

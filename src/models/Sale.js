@@ -68,6 +68,17 @@ const saleSchema = new mongoose.Schema({
     default: "Cash"
   },
 
+  // Cash payment details
+  cashReceived: {
+    type: Number,
+    default: 0
+  },
+
+  changeAmount: {
+    type: Number,
+    default: 0
+  },
+
   soldBy: {
     type: mongoose.Schema.Types.ObjectId,
     ref: "User"
