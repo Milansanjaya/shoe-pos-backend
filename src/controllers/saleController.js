@@ -1,62 +1,61 @@
-const mongoose = require("mongoose");
 const Sale = require("../models/Sale");
 const Product = require("../models/Product");
 const Counter = require("../models/Counter");
+
 /* ======================================
-   Generate Invoice Number (WITH SESSION)
+   Generate Invoice Number (no session)
 ====================================== */
-const getNextInvoiceNumber = async (session) => {
+const getNextInvoiceNumber = async () => {
   const counter = await Counter.findOneAndUpdate(
     { name: "invoice" },
     { $inc: { sequence: 1 } },
-    { new: true, upsert: true, session }
+    { new: true, upsert: true }
   );
-
   return `INV-${String(counter.sequence).padStart(5, "0")}`;
 };
+
 /* ======================================
-   Create Sale (Transaction Safe)
+   Create Sale
 ====================================== */
 const createSale = async (req, res) => {
-  const session = await mongoose.startSession();
-  session.startTransaction();
-
   try {
-    const { items, paymentMethod = "Cash" } = req.body;
+    const {
+      items,
+      paymentMethod = "Cash",
+      discountType = "NONE",
+      discountValue = 0,
+      cashReceived = 0,
+      changeAmount = 0
+    } = req.body;
 
-    if (!items || items.length === 0) {
-      throw new Error("No sale items provided");
-    }
+    if (!items || items.length === 0)
+      return res.status(400).json({ message: "No sale items provided" });
 
     let totalAmount = 0;
-    let totalProfit = 0;
+    let totalCost = 0;
     let processedItems = [];
 
     for (const item of items) {
-
-      const product = await Product.findById(item.product).session(session);
-
-      if (!product) throw new Error("Product not found");
+      const product = await Product.findById(item.product);
+      if (!product) return res.status(404).json({ message: "Product not found" });
 
       const variant = product.variants.find(
         v => v.size === item.size && v.color === item.color
       );
 
-      if (!variant) throw new Error("Variant not found");
-
+      if (!variant) return res.status(404).json({ message: "Variant not found" });
       if (variant.stock < item.quantity)
-        throw new Error("Not enough stock");
+        return res.status(400).json({ message: `Not enough stock for ${product.name}` });
 
-      // Reduce stock
       variant.stock -= item.quantity;
 
       const itemTotal = product.price * item.quantity;
       totalAmount += itemTotal;
 
       const cost = product.costPrice || 0;
-      totalProfit += (product.price - cost) * item.quantity;
+      totalCost += cost * item.quantity;
 
-      await product.save({ session });
+      await product.save();
 
       processedItems.push({
         product: product._id,
@@ -67,93 +66,44 @@ const createSale = async (req, res) => {
       });
     }
 
-    const invoiceNumber = await getNextInvoiceNumber(session);
+    /* Discount */
+    let discountAmount = 0;
+    if (discountType === "PERCENTAGE") {
+      discountAmount = (totalAmount * discountValue) / 100;
+    } else if (discountType === "FLAT") {
+      discountAmount = discountValue;
+    }
+    if (discountAmount > totalAmount) discountAmount = totalAmount;
+    const grandTotal = totalAmount - discountAmount;
 
-    const sale = await Sale.create([{
+    /* Profit */
+    const totalProfit = grandTotal - totalCost;
+
+    const invoiceNumber = await getNextInvoiceNumber();
+
+    const sale = await Sale.create({
       invoiceNumber,
       items: processedItems,
       totalAmount,
+      discountType,
+      discountValue,
+      discountAmount,
+      grandTotal,
       totalProfit,
       paymentMethod,
+      cashReceived: paymentMethod === "Cash" ? cashReceived : 0,
+      changeAmount: paymentMethod === "Cash" ? changeAmount : 0,
       soldBy: req.user.id
-    }], { session });
+    });
 
-    await session.commitTransaction();
-    session.endSession();
-
-    res.status(201).json(sale[0]);
+    res.status(201).json(sale);
 
   } catch (error) {
-    await session.abortTransaction();
-    session.endSession();
     res.status(400).json({ message: error.message });
   }
 };
 
-/* ======================================
-   Create Sale By Barcode (Transaction Safe)
-====================================== */
-const createSaleByBarcode = async (req, res) => {
-  const session = await mongoose.startSession();
-  session.startTransaction();
 
-  try {
-    let { barcode, quantity = 1, paymentMethod = "Cash" } = req.body;
-
-    quantity = Number(quantity);
-
-    if (!barcode) throw new Error("Barcode required");
-    if (quantity <= 0) throw new Error("Invalid quantity");
-
-    const product = await Product.findOne({
-      "variants.barcode": barcode
-    }).session(session);
-
-    if (!product) throw new Error("Product not found");
-
-    const variant = product.variants.find(v => v.barcode === barcode);
-
-    if (!variant) throw new Error("Variant not found");
-
-    if (variant.stock < quantity)
-      throw new Error("Not enough stock");
-
-    variant.stock -= quantity;
-
-    const totalAmount = product.price * quantity;
-    const cost = product.costPrice || 0;
-    const totalProfit = (product.price - cost) * quantity;
-
-    await product.save({ session });
-
-    const invoiceNumber = await getNextInvoiceNumber(session);
-
-    const sale = await Sale.create([{
-      invoiceNumber,
-      items: [{
-        product: product._id,
-        size: variant.size,
-        color: variant.color,
-        quantity,
-        price: product.price
-      }],
-      totalAmount,
-      totalProfit,
-      paymentMethod,
-      soldBy: req.user.id
-    }], { session });
-
-    await session.commitTransaction();
-    session.endSession();
-
-    res.status(201).json(sale[0]);
-
-  } catch (error) {
-    await session.abortTransaction();
-    session.endSession();
-    res.status(400).json({ message: error.message });
-  }
-};
 /* ======================================
    Get Single Sale
 ====================================== */
@@ -163,9 +113,8 @@ const getSaleById = async (req, res) => {
       .populate("items.product")
       .populate("soldBy");
 
-    if (!sale) {
+    if (!sale)
       return res.status(404).json({ message: "Sale not found" });
-    }
 
     res.json(sale);
 
@@ -173,8 +122,9 @@ const getSaleById = async (req, res) => {
     res.status(500).json({ message: error.message });
   }
 };
+
 /* ======================================
-   Print Invoice
+   Print Invoice (With Discount)
 ====================================== */
 const printInvoice = async (req, res) => {
   try {
@@ -184,65 +134,152 @@ const printInvoice = async (req, res) => {
 
     if (!sale) return res.status(404).send("Sale not found");
 
-    const date = new Date(sale.createdAt).toISOString().split("T")[0];
-
-    let itemsHtml = "";
-
-    sale.items.forEach(item => {
-      itemsHtml += `
-        <tr>
-          <td>${item.product.name}</td>
-          <td>${item.quantity}</td>
-          <td>${item.price}</td>
-          <td>${item.quantity * item.price}</td>
-        </tr>
-      `;
+    const date = new Date(sale.createdAt).toLocaleString('en-GB', {
+      day: '2-digit', month: 'short', year: 'numeric',
+      hour: '2-digit', minute: '2-digit'
     });
 
-    res.send(`
-      <html>
-      <head>
-        <title>Invoice</title>
-        <style>
-          body { font-family: Arial; padding: 20px; }
-          table { width: 100%; border-collapse: collapse; }
-          td, th { border-bottom: 1px solid #ccc; padding: 8px; }
-          h2 { text-align: center; }
-        </style>
-      </head>
-      <body>
-        <h2>SHOE SHOP</h2>
-        <hr/>
-        <p><strong>Invoice:</strong> ${sale.invoiceNumber}</p>
-        <p><strong>Date:</strong> ${date}</p>
-        <p><strong>Payment:</strong> ${sale.paymentMethod}</p>
+    // Short format for thermal: Rs. 25,000 (no decimals unless needed)
+    const fmt = (n) => 'Rs. ' + Number(n).toLocaleString('en-LK');
 
-        <table>
-          <tr>
-            <th>Item</th>
-            <th>Qty</th>
-            <th>Price</th>
-            <th>Total</th>
-          </tr>
-          ${itemsHtml}
-        </table>
+    const soldBy = sale.soldBy?.name || sale.soldBy?.email || '—';
 
-        <hr/>
-        <h3>Total: ${sale.totalAmount}</h3>
+    // 2-line per item layout: name+variant on first line, qty×price = total on second line
+    let itemsHtml = '';
+    sale.items.forEach(item => {
+      const name = item.product?.name || 'Unknown';
+      itemsHtml += `
+        <tr>
+          <td style="padding-top:5px;text-align:left" colspan="2"><strong>${name}</strong></td>
+        </tr>
+        <tr>
+          <td style="font-size:11px;color:#333">${item.size} / ${item.color}</td>
+          <td style="font-size:11px;text-align:right;color:#333">${item.quantity} x ${fmt(item.price)}</td>
+        </tr>`;
+    });
 
-        <script>window.print();</script>
-      </body>
-      </html>
-    `);
+    const discountRow = sale.discountAmount > 0
+      ? `<tr>
+          <td>Discount ${sale.discountType === 'PERCENTAGE' ? `(${sale.discountValue}%)` : '(Flat)'}</td>
+          <td class="right">- ${fmt(sale.discountAmount)}</td>
+         </tr>`
+      : '';
+
+    res.send(`<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8"/>
+  <title>Invoice ${sale.invoiceNumber}</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Courier New', monospace;
+      font-size: 12px;
+      font-weight: bold;
+      color: #000;
+      width: 64mm;
+      margin: 0;
+      padding: 2mm 2mm 2mm 8mm;
+    }
+    h2 { text-align: center; font-size: 15px; letter-spacing: 0px; margin-bottom: 1px; word-break: break-word; }
+    .center { text-align: center; }
+    .right { text-align: right; }
+    p { margin: 1px 0; font-size: 12px; }
+    hr { border: none; border-top: 1px dashed #000; margin: 3px 0; }
+    table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+    td { padding: 1px 0; font-size: 12px; vertical-align: top; }
+    td:first-child { width: 55%; word-break: break-word; }
+    td:last-child { width: 45%; text-align: right; white-space: nowrap; overflow: hidden; }
+    .right { text-align: right; }
+    .total-row td {
+      border-top: 1px dashed #000;
+      padding-top: 3px;
+      font-size: 13px;
+      font-weight: bold;
+    }
+    .footer { text-align: center; font-size: 12px; margin-top: 4px; }
+    @media print {
+      @page { size: 76mm auto; margin: 0; }
+      body { padding-left: 8mm; }
+    }
+  </style>
+</head>
+<body>
+  <h2>SHALANI SHOE PLACE</h2>
+  <p class="center">Point of Sale Receipt</p>
+  <hr/>
+  <p><strong>Invoice:</strong> ${sale.invoiceNumber}</p>
+  <p><strong>Date:</strong> ${date}</p>
+  <p><strong>Payment:</strong> ${sale.paymentMethod}</p>
+  <p><strong>Cashier:</strong> ${soldBy}</p>
+  <hr/>
+  <table>
+    <tbody>${itemsHtml}</tbody>
+  </table>
+  <hr/>
+  <table>
+    <tr>
+      <td>Subtotal</td>
+      <td class="right">${fmt(sale.totalAmount)}</td>
+    </tr>
+    ${discountRow}
+    <tr class="total-row">
+      <td>GRAND TOTAL</td>
+      <td class="right">${fmt(sale.grandTotal)}</td>
+    </tr>
+  </table>
+  <hr/>
+  <p><strong>Payment:</strong> ${sale.paymentMethod}</p>
+  ${sale.paymentMethod === 'Cash' && sale.cashReceived > 0 ? `<p><strong>Cash Received:</strong> ${fmt(sale.cashReceived)}</p><p style="color:#16a34a"><strong>Change Due:</strong> ${fmt(sale.changeAmount)}</p>` : ''}
+  <hr/>
+  <p class="footer">Thank you for your purchase!</p>
+  <p class="footer">*** SHALANI SHOE PLACE ***</p>
+  <script>
+    window.onload = function () {
+      window.print();
+      window.onafterprint = function () { window.close(); };
+    };
+  </script>
+</body>
+</html>`);
 
   } catch (error) {
     res.status(500).send(error.message);
   }
 };
 
+
+
+
+/* ======================================
+   Get All Sales
+====================================== */
+const getSales = async (req, res) => {
+  try {
+    const { from, to, paymentMethod } = req.query;
+    const filter = {};
+
+    if (paymentMethod) filter.paymentMethod = paymentMethod;
+    if (from || to) {
+      filter.createdAt = {};
+      if (from) filter.createdAt.$gte = new Date(from);
+      if (to) filter.createdAt.$lte = new Date(new Date(to).setHours(23, 59, 59, 999));
+    }
+
+    const sales = await Sale.find(filter)
+      .sort({ createdAt: -1 })
+      .populate('items.product', 'name brand')
+      .populate('soldBy', 'name email');
+
+    res.json(sales);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
 module.exports = {
   createSale,
-  createSaleByBarcode,
+  getSales,
   getSaleById,
   printInvoice
 };

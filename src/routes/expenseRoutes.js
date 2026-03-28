@@ -5,5 +5,4 @@ const auth = require("../middleware/authMiddleware");
 
 router.post("/", auth, createExpense);
 router.get("/monthly", auth, getMonthlyExpenses);
-
 module.exports = router;

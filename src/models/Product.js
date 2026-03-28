@@ -3,6 +3,7 @@ const mongoose = require("mongoose");
 const variantSchema = new mongoose.Schema({
   size: String,
   color: String,
+  barcode: String,
   stock: {
     type: Number,
     default: 0
@@ -17,28 +18,30 @@ const productSchema = new mongoose.Schema({
   brand: String,
   category: String,
 
-  price: {                 
+  price: {
     type: Number,
     required: true
   },
 
-  costPrice: {           
+  costPrice: {
     type: Number,
     required: true,
     default: 0
   },
 
- barcode: {
-  type: String,
-  unique: true,
-  required: true
-},
+  barcode: {
+    type: String,
+    unique: true,
+    required: true
+  },
 
 
   supplier: {
     type: mongoose.Schema.Types.ObjectId,
     ref: "Supplier"
   },
+
+  image: { type: String },   // base64 encoded product photo
 
   variants: [variantSchema]
 
