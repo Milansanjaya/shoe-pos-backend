@@ -148,11 +148,9 @@ const printInvoice = async (req, res) => {
     let itemsHtml = '';
     sale.items.forEach(item => {
       const name = item.product?.name || 'Unknown';
-      const lineTotal = item.quantity * item.price;
       itemsHtml += `
         <tr>
-          <td style="padding-top:5px"><strong>${name}</strong></td>
-          <td style="padding-top:5px;text-align:right"><strong>${fmt(lineTotal)}</strong></td>
+          <td style="padding-top:5px;text-align:left" colspan="2"><strong>${name}</strong></td>
         </tr>
         <tr>
           <td style="font-size:11px;color:#333">${item.size} / ${item.color}</td>
@@ -176,30 +174,33 @@ const printInvoice = async (req, res) => {
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
       font-family: 'Courier New', monospace;
-      font-size: 10px;
+      font-size: 12px;
       font-weight: bold;
       color: #000;
-      width: 100%;
+      width: 64mm;
       margin: 0;
-      padding: 0;
+      padding: 2mm 2mm 2mm 8mm;
     }
-    h2 { text-align: center; font-size: 13px; letter-spacing: 0px; margin-bottom: 1px; word-break: break-word; }
+    h2 { text-align: center; font-size: 15px; letter-spacing: 0px; margin-bottom: 1px; word-break: break-word; }
     .center { text-align: center; }
     .right { text-align: right; }
-    p { margin: 1px 0; font-size: 10px; }
+    p { margin: 1px 0; font-size: 12px; }
     hr { border: none; border-top: 1px dashed #000; margin: 3px 0; }
     table { width: 100%; border-collapse: collapse; table-layout: fixed; }
-    td { padding: 1px 0; font-size: 10px; vertical-align: top; word-break: break-word; }
+    td { padding: 1px 0; font-size: 12px; vertical-align: top; }
+    td:first-child { width: 55%; word-break: break-word; }
+    td:last-child { width: 45%; text-align: right; white-space: nowrap; overflow: hidden; }
     .right { text-align: right; }
     .total-row td {
       border-top: 1px dashed #000;
       padding-top: 3px;
-      font-size: 11px;
+      font-size: 13px;
       font-weight: bold;
     }
-    .footer { text-align: center; font-size: 10px; margin-top: 4px; }
+    .footer { text-align: center; font-size: 12px; margin-top: 4px; }
     @media print {
-      @page { size: 76mm auto; margin: 3mm 4mm; }
+      @page { size: 76mm auto; margin: 0; }
+      body { padding-left: 8mm; }
     }
   </style>
 </head>
